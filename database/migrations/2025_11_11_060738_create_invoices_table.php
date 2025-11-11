@@ -13,6 +13,18 @@ return new class extends Migration
     {
         Schema::create('invoices', function (Blueprint $table) {
             $table->id();
+            $table->string('invoice_number')->unique();
+            $table->foreignId('project_id')->constrained()->onDelete('cascade');
+            $table->foreignId('client_id')->constrained('users')->onDelete('cascade');
+            $table->date('issue_date');
+            $table->date('due_date');
+            $table->decimal('subtotal', 12, 2);
+            $table->decimal('tax', 12, 2)->default(0);
+            $table->decimal('discount', 12, 2)->default(0);
+            $table->decimal('total', 12, 2);
+            $table->enum('status', ['draft', 'sent', 'paid', 'overdue', 'cancelled'])->default('draft');
+            $table->date('paid_at')->nullable();
+            $table->text('notes')->nullable();
             $table->timestamps();
         });
     }

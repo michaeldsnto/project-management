@@ -13,6 +13,11 @@ return new class extends Migration
     {
         Schema::create('time_logs', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('task_id')->constrained()->onDelete('cascade');
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->decimal('hours', 5, 2); // 999.99 hours max
+            $table->date('log_date');
+            $table->text('description')->nullable();
             $table->timestamps();
         });
     }

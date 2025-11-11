@@ -13,7 +13,17 @@ return new class extends Migration
     {
         Schema::create('team_members', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->foreignId('project_id')->constrained()->onDelete('cascade');
+            $table->enum('role', ['lead', 'developer', 'designer', 'tester', 'analyst'])->default('developer');
+            $table->integer('allocation_percentage')->default(100); // 0-100
+            $table->date('joined_at');
+            $table->date('left_at')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
+
+            // Prevent duplicate entries
+            $table->unique(['user_id', 'project_id']);
         });
     }
 
