@@ -8,26 +8,22 @@
     <div class="space-y-6">
         <!-- Statistics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            @if(isset($stats))
-                @foreach($stats as $label => $value)
-                <div class="bg-white overflow-hidden shadow rounded-lg">
-                    <div class="p-5">
-                        <div class="flex items-center">
-                            <div class="flex-1">
-                                <div class="text-sm font-medium text-gray-500">
-                                    {{ ucwords(str_replace('_', ' ', $label)) }}
-                                </div>
-                                <div class="mt-1 text-3xl font-semibold text-gray-900">
-                                    {{ is_numeric($value) && $label != 'total_expenses' ? $value : 'Rp ' . number_format($value, 0, ',', '.') }}
-                                </div>
+            @foreach($stats as $label => $value)
+            <div class="bg-white overflow-hidden shadow rounded-lg">
+                <div class="p-5">
+                    <div class="flex items-center">
+                        <div class="flex-1">
+                            <div class="text-sm font-medium text-gray-500">
+                                {{ ucwords(str_replace('_', ' ', $label)) }}
+                            </div>
+                            <div class="mt-1 text-3xl font-semibold text-gray-900">
+                                {{ is_numeric($value) && $label != 'total_expenses' ? $value : 'Rp ' . number_format($value, 0, ',', '.') }}
                             </div>
                         </div>
                     </div>
                 </div>
-                @endforeach
-            @else
-                <p>No statistics available.</p>
-            @endif
+            </div>
+            @endforeach
         </div>
 
         <!-- Recent Projects -->
@@ -66,7 +62,7 @@
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div class="flex items-center">
                                         <div class="w-full bg-gray-200 rounded-full h-2 mr-2">
-                                            <div class="bg-indigo-600 h-2 rounded-full" @style(['width' => ($project->progress ?? 0) . '%'])></div>
+                                            <div class="bg-indigo-600 h-2 rounded-full"  @style(['width' => ($project->progress ?? 0) . '%'])></div>
                                         </div>
                                         <span class="text-sm text-gray-600">{{ $project->progress }}%</span>
                                     </div>
