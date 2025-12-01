@@ -2,7 +2,7 @@
     <x-slot name="header">
         <div class="flex justify-between items-center">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight">Projects</h2>
-            <a href="{{ route('projects.create') }}" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            <a href="{{ route('projects.create') }}" class="bg-indigo-600 hover:bg-indigo-700  px-4 py-2 rounded-md text-sm font-medium">
                 Create Project
             </a>
         </div>

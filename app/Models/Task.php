@@ -26,8 +26,8 @@ class Task extends Model
     ];
 
     protected $casts = [
-        'start_date' => 'date',
-        'due_date' => 'date',
+        'start_date' => 'datetime',
+        'due_date' => 'datetime',
         'completed_at' => 'date',
         'estimated_hours' => 'integer',
         'actual_hours' => 'integer',

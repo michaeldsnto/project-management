@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\CommentRequest;
 use App\Models\Comment;
 use App\Models\Task;
 use Illuminate\Http\Request;
@@ -9,13 +10,9 @@ use Illuminate\Support\Facades\Auth;
 
 class CommentController extends Controller
 {
-    public function store(Request $request, Task $task)
+     public function store(CommentRequest $request, Task $task)
     {
-        $validated = $request->validate([
-            'content' => 'required|string',
-            'parent_id' => 'nullable|exists:comments,id',
-        ]);
-
+        $validated = $request->validated();
         $validated['task_id'] = $task->id;
         $validated['user_id'] = Auth::id();
 

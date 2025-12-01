@@ -22,17 +22,17 @@ class TimeLogController extends Controller
 
         TimeLog::create($validated);
 
-        // Update task actual hours using update instead of increment
-        $task->update(['actual_hours' => $task->actual_hours + (float) $validated['hours']]);
+        // Update task actual hours
+        $task->increment('actual_hours', $validated['hours']);
 
         return back()->with('success', 'Time log added!');
     }
 
     public function destroy(TimeLog $timeLog)
     {
-        // Update task actual hours using update instead of decrement
-        $timeLog->task->update(['actual_hours' => $timeLog->task->actual_hours - (float) $timeLog->hours]);
-
+        // Update task actual hours
+        $timeLog->task->decrement('actual_hours', (float) $timeLog->hours);
+        
         $timeLog->delete();
 
         return back()->with('success', 'Time log deleted!');

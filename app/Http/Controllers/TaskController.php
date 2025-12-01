@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\TaskRequest;
+use App\Http\Requests\UpdateTaskStatusRequest;
 use App\Models\Task;
 use App\Models\Project;
 use App\Models\User;
@@ -30,20 +32,9 @@ class TaskController extends Controller
         return view('tasks.create', compact('projects', 'users', 'projectId'));
     }
 
-    public function store(Request $request)
+    public function store(TaskRequest $request)
     {
-        $validated = $request->validate([
-            'project_id' => 'required|exists:projects,id',
-            'title' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'assigned_to' => 'nullable|exists:users,id',
-            'priority' => 'required|in:low,medium,high,urgent',
-            'status' => 'required|in:todo,in_progress,review,completed,cancelled',
-            'start_date' => 'nullable|date',
-            'due_date' => 'nullable|date|after_or_equal:start_date',
-            'estimated_hours' => 'nullable|integer|min:0',
-        ]);
-
+        $validated = $request->validated();
         $validated['created_by'] = Auth::id();
 
         $task = Task::create($validated);
@@ -69,28 +60,9 @@ class TaskController extends Controller
         return view('tasks.edit', compact('task', 'projects', 'users'));
     }
 
-    public function update(Request $request, Task $task)
+    public function update(TaskRequest $request, Task $task)
     {
-        $validated = $request->validate([
-            'project_id' => 'required|exists:projects,id',
-            'title' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'assigned_to' => 'nullable|exists:users,id',
-            'priority' => 'required|in:low,medium,high,urgent',
-            'status' => 'required|in:todo,in_progress,review,completed,cancelled',
-            'start_date' => 'nullable|date',
-            'due_date' => 'nullable|date|after_or_equal:start_date',
-            'estimated_hours' => 'nullable|integer|min:0',
-            'progress' => 'nullable|integer|min:0|max:100',
-        ]);
-
-        // Auto-complete if progress is 100
-        if (isset($validated['progress']) && $validated['progress'] == 100) {
-            $validated['status'] = 'completed';
-            $validated['completed_at'] = now();
-        }
-
-        $task->update($validated);
+        $task->update($request->validated());
 
         return redirect()->route('tasks.show', $task)
             ->with('success', 'Task updated successfully!');
@@ -106,16 +78,14 @@ class TaskController extends Controller
     }
 
     // Update task status via AJAX
-    public function updateStatus(Request $request, Task $task)
+    public function updateStatus(UpdateTaskStatusRequest $request, Task $task)
     {
-        $validated = $request->validate([
-            'status' => 'required|in:todo,in_progress,review,completed,cancelled',
-        ]);
-
-        $task->update($validated);
+        $validated = $request->validated();
 
         if ($validated['status'] === 'completed') {
             $task->markAsCompleted();
+        } else {
+            $task->update($validated);
         }
 
         return response()->json([

@@ -5,218 +5,345 @@ namespace App\Http\Controllers;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\Expense;
-use App\Models\Invoice;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
 {
+    /**
+     * Display reports index page
+     */
     public function index()
     {
-        $user = Auth::user();
-
-        // Get available projects for reports
-        if ($user->isAdmin() || $user->isProjectManager()) {
-            $projects = Project::with('manager', 'client')->get();
-        } else {
-            $projects = $user->teamProjects()->with('manager')->get();
-        }
-
-        return view('reports.index', compact('projects'));
-    }
-
-    public function project(Project $project)
-    {
-        // Check access
-        $user = Auth::user();
-        if (!$user->isAdmin() && !$user->isProjectManager() && !$project->teamMembers()->where('user_id', $user->id)->exists()) {
-            abort(403);
-        }
-
-        // Project statistics
+        $projects = Project::with('manager')->get();
+        
         $stats = [
-            'total_tasks' => $project->tasks()->count(),
-            'completed_tasks' => $project->tasks()->where('status', 'completed')->count(),
-            'pending_tasks' => $project->tasks()->where('status', 'todo')->count(),
-            'in_progress_tasks' => $project->tasks()->where('status', 'in_progress')->count(),
-            'total_expenses' => $project->expenses()->where('status', 'approved')->sum('amount'),
-            'total_hours' => $project->tasks()->sum('actual_hours'),
-            'budget_used' => $project->actual_cost,
-            'budget_remaining' => $project->budget_remaining,
-            'progress' => $project->calculateProgress(),
-        ];
-
-        // Tasks breakdown
-        $tasks = $project->tasks()
-            ->with('assignedUser', 'timeLogs')
-            ->orderBy('created_at', 'desc')
-            ->get();
-
-        // Expenses breakdown
-        $expenses = $project->expenses()
-            ->with('user')
-            ->where('status', 'approved')
-            ->orderBy('expense_date', 'desc')
-            ->get();
-
-        // Team members and their contributions
-        $teamMembers = $project->activeTeamMembers()
-            ->with(['tasks' => function($query) use ($project) {
-                $query->where('project_id', $project->id);
-            }])
-            ->get()
-            ->map(function($member) use ($project) {
-                $member->total_tasks = $member->tasks->count();
-                $member->completed_tasks = $member->tasks->where('status', 'completed')->count();
-                $member->total_hours = $member->tasks->sum('actual_hours');
-                return $member;
-            });
-
-        return view('reports.project', compact('project', 'stats', 'tasks', 'expenses', 'teamMembers'));
-    }
-
-    public function financial()
-    {
-        $user = Auth::user();
-
-        if ($user->isAdmin() || $user->isProjectManager()) {
-            // Overall financial summary
-            $stats = [
-                'total_projects' => Project::count(),
-                'active_projects' => Project::where('status', 'in_progress')->count(),
-                'total_budget' => Project::sum('budget'),
-                'total_actual_cost' => Project::sum('actual_cost'),
-                'total_expenses' => Expense::where('status', 'approved')->sum('amount'),
-                'total_invoiced' => Invoice::where('status', 'paid')->sum('total'),
-                'pending_invoices' => Invoice::where('status', 'sent')->sum('total'),
-                'overdue_invoices' => Invoice::where('status', 'overdue')->sum('total'),
-            ];
-
-            // Projects financial breakdown
-            $projects = Project::with('expenses', 'invoices')
-                ->get()
-                ->map(function($project) {
-                    $project->total_expenses = $project->expenses()->where('status', 'approved')->sum('amount');
-                    $project->total_invoiced = $project->invoices()->where('status', 'paid')->sum('total');
-                    $project->profit_loss = $project->total_invoiced - $project->actual_cost;
-                    return $project;
-                });
-
-            // Monthly expenses for the last 12 months
-            $monthlyExpenses = Expense::where('status', 'approved')
-                ->where('created_at', '>=', now()->subMonths(12))
-                ->selectRaw('YEAR(created_at) as year, MONTH(created_at) as month, SUM(amount) as total')
-                ->groupBy('year', 'month')
-                ->orderBy('year', 'desc')
-                ->orderBy('month', 'desc')
-                ->get();
-
-        } else {
-            // Team member view - only their projects
-            $projects = $user->teamProjects()->with('expenses', 'invoices')->get();
-
-            $stats = [
-                'my_projects' => $projects->count(),
-                'total_budget' => $projects->sum('budget'),
-                'total_actual_cost' => $projects->sum('actual_cost'),
-                'total_expenses' => Expense::where('status', 'approved')
-                    ->whereIn('project_id', $projects->pluck('id'))
-                    ->sum('amount'),
-            ];
-        }
-
-        return view('reports.financial', compact('stats', 'projects', 'monthlyExpenses'));
-    }
-
-    public function team()
-    {
-        $user = Auth::user();
-
-        if ($user->isAdmin() || $user->isProjectManager()) {
-            // All team members
-            $teamMembers = User::where('is_active', true)
-                ->whereIn('role', ['project_manager', 'team_member'])
-                ->with(['tasks', 'timeLogs', 'teamProjects'])
-                ->get()
-                ->map(function($member) {
-                    $member->total_tasks = $member->tasks()->count();
-                    $member->completed_tasks = $member->tasks()->where('status', 'completed')->count();
-                    $member->total_hours = $member->timeLogs()->sum('hours');
-                    $member->active_projects = $member->teamProjects()->where('status', 'in_progress')->count();
-                    $member->completion_rate = $member->total_tasks > 0 ? round(($member->completed_tasks / $member->total_tasks) * 100, 1) : 0;
-                    return $member;
-                })
-                ->sortByDesc('total_hours');
-        } else {
-            // Only current user
-            $teamMembers = collect([$user])->map(function($member) {
-                $member->total_tasks = $member->tasks()->count();
-                $member->completed_tasks = $member->tasks()->where('status', 'completed')->count();
-                $member->total_hours = $member->timeLogs()->sum('hours');
-                $member->active_projects = $member->teamProjects()->where('status', 'in_progress')->count();
-                $member->completion_rate = $member->total_tasks > 0 ? round(($member->completed_tasks / $member->total_tasks) * 100, 1) : 0;
-                return $member;
-            });
-        }
-
-        // Overall team statistics
-        $stats = [
-            'total_members' => $teamMembers->count(),
+            'total_projects' => Project::count(),
+            'active_projects' => Project::where('status', 'in_progress')->count(),
+            'completed_projects' => Project::where('status', 'completed')->count(),
+            'total_budget' => Project::sum('budget'),
+            'total_spent' => Project::sum('actual_cost'),
             'total_tasks' => Task::count(),
             'completed_tasks' => Task::where('status', 'completed')->count(),
-            'total_hours' => $teamMembers->sum('total_hours'),
-            'average_completion_rate' => $teamMembers->avg('completion_rate'),
         ];
 
-        return view('reports.team', compact('teamMembers', 'stats'));
+        return view('reports.index', compact('projects', 'stats'));
     }
 
+    /**
+     * Generate project report
+     */
+    public function project(Project $project)
+    {
+        $project->load([
+            'manager',
+            'client',
+            'tasks.assignedUser',
+            'teamMembers',
+            'expenses' => function ($query) {
+                $query->where('status', 'approved');
+            }
+        ]);
+
+        // Calculate statistics
+        $stats = [
+            'total_tasks' => $project->tasks->count(),
+            'completed_tasks' => $project->tasks->where('status', 'completed')->count(),
+            'in_progress_tasks' => $project->tasks->where('status', 'in_progress')->count(),
+            'pending_tasks' => $project->tasks->where('status', 'todo')->count(),
+            'overdue_tasks' => $project->tasks->filter(fn($task) => $task->isOverdue())->count(),
+            'total_expenses' => $project->expenses->sum('amount'),
+            'budget_utilization' => $project->budget > 0 ? ($project->actual_cost / $project->budget) * 100 : 0,
+            'team_size' => $project->teamMembers->count(),
+        ];
+
+        // Task breakdown by priority
+        $tasksByPriority = $project->tasks->groupBy('priority')->map(fn($group) => $group->count());
+
+        // Task breakdown by status
+        $tasksByStatus = $project->tasks->groupBy('status')->map(fn($group) => $group->count());
+
+        // Expense breakdown by category
+        $expensesByCategory = $project->expenses->groupBy('category')->map(fn($group) => $group->sum('amount'));
+
+        return view('reports.project', compact('project', 'stats', 'tasksByPriority', 'tasksByStatus', 'expensesByCategory'));
+    }
+
+    /**
+     * Export project report to PDF
+     */
     public function exportProject(Project $project)
     {
-        // Check access
-        $user = Auth::user();
-        if (!$user->isAdmin() && !$user->isProjectManager() && !$project->teamMembers()->where('user_id', $user->id)->exists()) {
-            abort(403);
-        }
+        $project->load([
+            'manager',
+            'client',
+            'tasks.assignedUser',
+            'teamMembers',
+            'expenses' => function ($query) {
+                $query->where('status', 'approved');
+            }
+        ]);
 
-        // For now, return JSON - in production, implement PDF/Excel export
-        $data = [
-            'project' => $project->toArray(),
-            'tasks' => $project->tasks()->with('assignedUser')->get(),
-            'expenses' => $project->expenses()->where('status', 'approved')->get(),
-            'team_members' => $project->activeTeamMembers,
+        // Calculate statistics
+        $stats = [
+            'total_tasks' => $project->tasks->count(),
+            'completed_tasks' => $project->tasks->where('status', 'completed')->count(),
+            'in_progress_tasks' => $project->tasks->where('status', 'in_progress')->count(),
+            'pending_tasks' => $project->tasks->where('status', 'todo')->count(),
+            'overdue_tasks' => $project->tasks->filter(fn($task) => $task->isOverdue())->count(),
+            'total_expenses' => $project->expenses->sum('amount'),
+            'budget_utilization' => $project->budget > 0 ? ($project->actual_cost / $project->budget) * 100 : 0,
+            'team_size' => $project->teamMembers->count(),
         ];
 
-        return response()->json($data);
+        $tasksByPriority = $project->tasks->groupBy('priority')->map(fn($group) => $group->count());
+        $tasksByStatus = $project->tasks->groupBy('status')->map(fn($group) => $group->count());
+        $expensesByCategory = $project->expenses->groupBy('category')->map(fn($group) => $group->sum('amount'));
+
+        $pdf = Pdf::loadView('reports.pdf.project', compact('project', 'stats', 'tasksByPriority', 'tasksByStatus', 'expensesByCategory'));
+        
+        return $pdf->download('project-report-' . $project->code . '-' . now()->format('Y-m-d') . '.pdf');
     }
 
-    public function exportFinancial()
+    /**
+     * Display financial report
+     */
+    public function financial(Request $request)
     {
-        $user = Auth::user();
+        $startDate = $request->input('start_date', now()->startOfMonth());
+        $endDate = $request->input('end_date', now()->endOfMonth());
 
-        if ($user->isAdmin() || $user->isProjectManager()) {
-            $data = [
-                'projects' => Project::with('expenses', 'invoices')->get(),
-                'total_budget' => Project::sum('budget'),
-                'total_actual_cost' => Project::sum('actual_cost'),
-                'total_expenses' => Expense::where('status', 'approved')->sum('amount'),
-                'total_invoiced' => Invoice::where('status', 'paid')->sum('total'),
-            ];
-        } else {
-            $projects = $user->teamProjects()->with('expenses')->get();
-            $data = [
-                'projects' => $projects,
-                'total_budget' => $projects->sum('budget'),
-                'total_actual_cost' => $projects->sum('actual_cost'),
-                'total_expenses' => Expense::where('status', 'approved')
-                    ->whereIn('project_id', $projects->pluck('id'))
-                    ->sum('amount'),
-            ];
-        }
+        // Total budget and costs
+        $projects = Project::whereBetween('start_date', [$startDate, $endDate])->get();
+        
+        $totalBudget = $projects->sum('budget');
+        $totalSpent = $projects->sum('actual_cost');
+        $totalRemaining = $totalBudget - $totalSpent;
 
-        return response()->json($data);
+        // Expenses breakdown
+        $expensesByCategory = Expense::where('status', 'approved')
+            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->select('category', DB::raw('SUM(amount) as total'))
+            ->groupBy('category')
+            ->get()
+            ->pluck('total', 'category');
+
+        // Expenses by project
+        $expensesByProject = Expense::where('status', 'approved')
+            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->with('project')
+            ->get()
+            ->groupBy('project_id')
+            ->map(function ($expenses) {
+                return [
+                    'project' => $expenses->first()->project,
+                    'total' => $expenses->sum('amount'),
+                    'count' => $expenses->count(),
+                ];
+            });
+
+        // Monthly trend (last 6 months)
+        $monthlyExpenses = Expense::where('status', 'approved')
+            ->where('expense_date', '>=', now()->subMonths(6))
+            ->select(
+                DB::raw('DATE_FORMAT(expense_date, "%Y-%m") as month'),
+                DB::raw('SUM(amount) as total')
+            )
+            ->groupBy('month')
+            ->orderBy('month')
+            ->get();
+
+        $stats = [
+            'total_budget' => $totalBudget,
+            'total_spent' => $totalSpent,
+            'total_remaining' => $totalRemaining,
+            'utilization_rate' => $totalBudget > 0 ? ($totalSpent / $totalBudget) * 100 : 0,
+            'total_projects' => $projects->count(),
+            'overbudget_projects' => $projects->filter(fn($p) => $p->isOverBudget())->count(),
+        ];
+
+        return view('reports.financial', compact('stats', 'expensesByCategory', 'expensesByProject', 'monthlyExpenses', 'startDate', 'endDate'));
+    }
+
+    /**
+     * Export financial report to PDF
+     */
+    public function exportFinancial(Request $request)
+    {
+        $startDate = $request->input('start_date', now()->startOfMonth());
+        $endDate = $request->input('end_date', now()->endOfMonth());
+
+        $projects = Project::whereBetween('start_date', [$startDate, $endDate])->get();
+        
+        $totalBudget = $projects->sum('budget');
+        $totalSpent = $projects->sum('actual_cost');
+        $totalRemaining = $totalBudget - $totalSpent;
+
+        $expensesByCategory = Expense::where('status', 'approved')
+            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->select('category', DB::raw('SUM(amount) as total'))
+            ->groupBy('category')
+            ->get()
+            ->pluck('total', 'category');
+
+        $expensesByProject = Expense::where('status', 'approved')
+            ->whereBetween('expense_date', [$startDate, $endDate])
+            ->with('project')
+            ->get()
+            ->groupBy('project_id')
+            ->map(function ($expenses) {
+                return [
+                    'project' => $expenses->first()->project,
+                    'total' => $expenses->sum('amount'),
+                    'count' => $expenses->count(),
+                ];
+            });
+
+        $stats = [
+            'total_budget' => $totalBudget,
+            'total_spent' => $totalSpent,
+            'total_remaining' => $totalRemaining,
+            'utilization_rate' => $totalBudget > 0 ? ($totalSpent / $totalBudget) * 100 : 0,
+            'total_projects' => $projects->count(),
+            'overbudget_projects' => $projects->filter(fn($p) => $p->isOverBudget())->count(),
+        ];
+
+        $pdf = Pdf::loadView('reports.pdf.financial', compact('stats', 'expensesByCategory', 'expensesByProject', 'startDate', 'endDate'));
+        
+        return $pdf->download('financial-report-' . now()->format('Y-m-d') . '.pdf');
+    }
+
+    /**
+     * Display team performance report
+     */
+    public function team(Request $request)
+    {
+        $startDate = $request->input('start_date', now()->startOfMonth());
+        $endDate = $request->input('end_date', now()->endOfMonth());
+
+        // Team members with their tasks
+        $teamMembers = User::where('role', 'team_member')
+            ->withCount([
+                'tasks as total_tasks',
+                'tasks as completed_tasks' => fn($q) => $q->where('status', 'completed'),
+                'tasks as in_progress_tasks' => fn($q) => $q->where('status', 'in_progress'),
+                'tasks as overdue_tasks' => fn($q) => $q->where('status', '!=', 'completed')
+                    ->whereNotNull('due_date')
+                    ->where('due_date', '<', now()),
+            ])
+            ->with([
+                'timeLogs' => fn($q) => $q->whereBetween('log_date', [$startDate, $endDate])
+            ])
+            ->get()
+            ->map(function ($member) {
+                $member->total_hours = $member->timeLogs->sum('hours');
+                $member->completion_rate = $member->total_tasks > 0 
+                    ? round(($member->completed_tasks / $member->total_tasks) * 100, 2) 
+                    : 0;
+                return $member;
+            });
+
+        // Top performers
+        $topPerformers = $teamMembers->sortByDesc('completion_rate')->take(5);
+
+        // Task distribution
+        $taskDistribution = $teamMembers->map(function ($member) {
+            return [
+                'name' => $member->name,
+                'tasks' => $member->total_tasks,
+                'completed' => $member->completed_tasks,
+            ];
+        });
+
+        return view('reports.team', compact('teamMembers', 'topPerformers', 'taskDistribution', 'startDate', 'endDate'));
+    }
+
+    /**
+     * Export to Excel (CSV format)
+     */
+    public function exportExcel(Request $request)
+    {
+        $type = $request->input('type', 'projects');
+        
+        $filename = $type . '-report-' . now()->format('Y-m-d') . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function() use ($type) {
+            $file = fopen('php://output', 'w');
+
+            if ($type === 'projects') {
+                // CSV Headers
+                fputcsv($file, ['Project Code', 'Name', 'Manager', 'Client', 'Status', 'Priority', 'Budget', 'Actual Cost', 'Progress', 'Start Date', 'End Date']);
+
+                // Data
+                Project::with('manager', 'client')->chunk(100, function ($projects) use ($file) {
+                    foreach ($projects as $project) {
+                        fputcsv($file, [
+                            $project->code,
+                            $project->name,
+                            $project->manager->name,
+                            $project->client->name ?? 'N/A',
+                            $project->status,
+                            $project->priority,
+                            $project->budget,
+                            $project->actual_cost,
+                            $project->progress . '%',
+                            $project->start_date->format('Y-m-d'),
+                            $project->end_date?->format('Y-m-d') ?? 'N/A',
+                        ]);
+                    }
+                });
+            } elseif ($type === 'tasks') {
+                // CSV Headers
+                fputcsv($file, ['Project', 'Task Title', 'Assigned To', 'Priority', 'Status', 'Start Date', 'Due Date', 'Estimated Hours', 'Actual Hours', 'Progress']);
+
+                // Data
+                Task::with('project', 'assignedUser')->chunk(100, function ($tasks) use ($file) {
+                    foreach ($tasks as $task) {
+                        fputcsv($file, [
+                            $task->project->name,
+                            $task->title,
+                            $task->assignedUser->name ?? 'Unassigned',
+                            $task->priority,
+                            $task->status,
+                            $task->start_date?->format('Y-m-d') ?? 'N/A',
+                            $task->due_date?->format('Y-m-d') ?? 'N/A',
+                            $task->estimated_hours ?? 0,
+                            $task->actual_hours ?? 0,
+                            $task->progress . '%',
+                        ]);
+                    }
+                });
+            } elseif ($type === 'expenses') {
+                // CSV Headers
+                fputcsv($file, ['Project', 'Title', 'Category', 'Amount', 'Status', 'Expense Date', 'Submitted By', 'Approved By']);
+
+                // Data
+                Expense::with('project', 'user', 'approver')->chunk(100, function ($expenses) use ($file) {
+                    foreach ($expenses as $expense) {
+                        fputcsv($file, [
+                            $expense->project->name,
+                            $expense->title,
+                            $expense->category,
+                            $expense->amount,
+                            $expense->status,
+                            $expense->expense_date->format('Y-m-d'),
+                            $expense->user->name,
+                            $expense->approver->name ?? 'N/A',
+                        ]);
+                    }
+                });
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
     }
 }

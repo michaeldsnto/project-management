@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ProjectRequest;
 use App\Models\Project;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -30,21 +31,9 @@ class ProjectController extends Controller
         return view('projects.create', compact('managers', 'clients'));
     }
 
-    public function store(Request $request)
+    public function store(ProjectRequest $request)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'client_id' => 'nullable|exists:users,id',
-            'manager_id' => 'required|exists:users,id',
-            'start_date' => 'required|date',
-            'end_date' => 'nullable|date|after:start_date',
-            'budget' => 'required|numeric|min:0',
-            'status' => 'required|in:planning,in_progress,on_hold,completed,cancelled',
-            'priority' => 'required|in:low,medium,high,urgent',
-        ]);
-
-        // Generate unique project code
+        $validated = $request->validated();
         $validated['code'] = 'PRJ-' . strtoupper(Str::random(6));
         
         $project = Project::create($validated);
@@ -79,21 +68,9 @@ class ProjectController extends Controller
         return view('projects.edit', compact('project', 'managers', 'clients'));
     }
 
-    public function update(Request $request, Project $project)
+    public function update(ProjectRequest $request, Project $project)
     {
-        $validated = $request->validate([
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'client_id' => 'nullable|exists:users,id',
-            'manager_id' => 'required|exists:users,id',
-            'start_date' => 'required|date',
-            'end_date' => 'nullable|date|after:start_date',
-            'budget' => 'required|numeric|min:0',
-            'status' => 'required|in:planning,in_progress,on_hold,completed,cancelled',
-            'priority' => 'required|in:low,medium,high,urgent',
-        ]);
-
-        $project->update($validated);
+        $project->update($request->validated());
 
         return redirect()->route('projects.show', $project)
             ->with('success', 'Project updated successfully!');

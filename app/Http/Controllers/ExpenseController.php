@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ExpenseRequest;
 use App\Models\Expense;
 use App\Models\Project;
 use Illuminate\Http\Request;
@@ -20,17 +21,9 @@ class ExpenseController extends Controller
         return view('expenses.index', compact('project', 'expenses'));
     }
 
-    public function store(Request $request, Project $project)
+    public function store(ExpenseRequest $request, Project $project)
     {
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'amount' => 'required|numeric|min:0',
-            'category' => 'required|in:salary,equipment,software,travel,miscellaneous',
-            'expense_date' => 'required|date',
-            'receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
-        ]);
-
+        $validated = $request->validated();
         $validated['project_id'] = $project->id;
         $validated['user_id'] = Auth::id();
 
